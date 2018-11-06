@@ -1,6 +1,6 @@
 # TinkerDemo
 
-	设置配置
+设置配置
 
 	1.使用 gradle/app/tasks/build/assembleDebug 来build apk
 
