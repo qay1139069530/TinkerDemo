@@ -26,22 +26,19 @@ Error集合
 		build.gradle中是通过
 
 		def gitSha() {
+			try {
+				String gitRev = 'git rev-parse --short HEAD'.execute(null, project.rootDir).text.trim()
 
-				try {
+				if (gitRev == null) {
 
-						String gitRev = 'git rev-parse --short HEAD'.execute(null, project.rootDir).text.trim()
+					throw new GradleException("can't get git rev, you should add git to system path or just input test value, such as 'testTinkerId'")
 
-						if (gitRev == null) {
+				}
 
-								throw new GradleException("can't get git rev, you should add git to system path or just input test value, such as 'testTinkerId'")
-
-						}
-
-						return gitRev
+				return gitRev
 
 				} catch (Exception e) {
-
-						throw new GradleException("can't get git rev, you should add git to system path or just input test value, such as 'testTinkerId'")
+					throw new GradleException("can't get git rev, you should add git to system path or just input test value, such as 'testTinkerId'")
 
 				}
 
