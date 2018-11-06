@@ -1,6 +1,14 @@
 apply plugin: 'com.android.application'
 
 android {
+    signingConfigs {
+        config {
+            keyAlias 'keystore'
+            keyPassword '123456'
+            storeFile file('D:/keystore.jks')
+            storePassword '123456'
+        }
+    }
     compileSdkVersion 28
     defaultConfig {
         applicationId "com.qbase.tinkerdemo"
@@ -27,21 +35,26 @@ android {
 
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
     }
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-        }
-    }
-
+    //排除目录下不需要编译的包
     sourceSets {
         main {
             jniLibs.srcDirs = ['libs']
         }
     }
-
+    //建议 recommend Tinker相关配置
     dexOptions {
+        //启动矩形模式
         jumboMode = true
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.config
+        }
+        debug {
+            signingConfig signingConfigs.config
+        }
     }
 }
 
@@ -54,11 +67,35 @@ dependencies {
     androidTestImplementation 'com.android.support.test.espresso:espresso-core:3.0.2'
     //tinker的核心库
     implementation("com.tencent.tinker:tinker-android-lib:${TINKER_VERSION}") { changing = true }
-    annotationProcessor("com.tencent.tinker:tinker-android-anno:${TINKER_VERSION}") { changing = true }
+    annotationProcessor("com.tencent.tinker:tinker-android-anno:${TINKER_VERSION}") {
+        changing = true
+    }
     compileOnly("com.tencent.tinker:tinker-android-anno:${TINKER_VERSION}") { changing = true }
 }
 
 
+def bakPath = file("${buildDir}/bakApk/")
+
+/**
+ * 使用 gradle/app/tasks/build/assembleRelease 来build apk，
+ * 并在项目app/build/bakApk中将生成的apk信息赋值到
+ */
+ext {
+    //是否启用Tinker的标志位
+    tinkerEnabled = true
+
+    //oldApk 文件路径
+    tinkerOldApkPath = "${bakPath}/app-debug-1106-11-06-21.apk"
+    //混淆文件路径
+    tinkerApplyMappingPath = "${bakPath}/app-release-1106-10-15-49-mapping.txt"
+    //资源路径
+    tinkerApplyResourcePath = "${bakPath}/app-debug-1106-11-06-21-R.txt"
+
+    //多渠道打包路径
+    //tinkerBuildFlavorDirectory = "${bakPath}/app-debug-1105-16-53-31"
+}
+
+/*================================方法实现模块====================================*/
 
 def gitSha() {
     try {
@@ -71,30 +108,6 @@ def gitSha() {
         throw new GradleException("can't get git rev, you should add git to system path or just input test value, such as 'testTinkerId'")
     }
 }
-
-def bakPath = file("${buildDir}/bakApk/")
-
-/**
- * you can use assembleRelease to build you base apk
- * use tinkerPatchRelease -POLD_APK=  -PAPPLY_MAPPING=  -PAPPLY_RESOURCE= to build patch
- * add apk from the build/bakApk
- */
-ext {
-    //for some reason, you may want to ignore tinkerBuild, such as instant run debug build?
-    tinkerEnabled = true
-
-    //for normal build
-    //old apk file to build patch apk
-    tinkerOldApkPath = "${bakPath}/app-release-unsigned.apk"
-    //proguard mapping file to build patch apk
-    tinkerApplyMappingPath = "${bakPath}/app-debug-1018-17-32-47-mapping.txt"
-    //resource R.txt to build patch apk, must input if there is resource changed
-    tinkerApplyResourcePath = "${bakPath}/app-release-1105-17-03-20-R.txt"
-
-    //only use for build all flavor, if not, just ignore this field
-    tinkerBuildFlavorDirectory = "${bakPath}/app-debug-1105-16-53-31"
-}
-
 
 def getOldApkPath() {
     return hasProperty("OLD_APK") ? OLD_APK : ext.tinkerOldApkPath
@@ -121,29 +134,27 @@ def getTinkerBuildFlavorDirectory() {
 }
 
 if (buildWithTinker()) {
+    //启用Tinker  引入相关Gradle方法
     apply plugin: 'com.tencent.tinker.patch'
 
+    //所有Tinker相关参数的配置
     tinkerPatch {
-        /**
-         * necessary，default 'null'
-         * the old apk path, use to diff with the new apk to build
-         * add apk from the build/bakApk
-         */
+        /*================================基本配置====================================*/
+
+        //指定old apk(即上一个版本的Apk) 的文件路径
         oldApk = getOldApkPath()
         /**
-         * optional，default 'false'
-         * there are some cases we may get some warnings
-         * if ignoreWarning is true, we would just assert the patch process
-         * case 1: minSdkVersion is below 14, but you are using dexMode with raw.
-         *         it must be crash when load.
-         * case 2: newly added Android Component in AndroidManifest.xml,
-         *         it must be crash when load.
-         * case 3: loader classes in dex.loader{} are not keep in the main dex,
-         *         it must be let tinker not work.
-         * case 4: loader classes in dex.loader{} changes,
-         *         loader classes is ues to load patch dex. it is useless to change them.
-         *         it won't crash, but these changes can't effect. you may ignore it
-         * case 5: resources.arsc has changed, but we don't use applyResourceMapping to build
+         * 可选，默认'false'
+         * 有些情况下我们可能会收到一些警告
+         * 如果ignoreWarning为true，我们只是断言补丁过程
+         * case 1：minSdkVersion低于14，但是你使用dexMode与raw。
+         * case 2：在AndroidManifest.xml中新添加Android组件，
+         * case 3：装载器类在dex.loader {}不保留在主要的dex，
+         * 它必须让tinker不工作。
+         * case 4：在dex.loader {}中的loader类改变，
+         * 加载器类是加载补丁dex。改变它们是没有用的。
+         * 它不会崩溃，但这些更改不会影响。你可以忽略它
+         * case 5：resources.arsc已经改变，但是我们不使用applyResourceMapping来构建
          */
         ignoreWarning = false
 
@@ -153,12 +164,14 @@ if (buildWithTinker()) {
          * if not, you must do yourself. otherwise it can't check success during the patch loading
          * we will use the sign config with your build type
          */
+        //patch是否需要签名 true为需要 防止恶意串改
         useSign = true
 
         /**
          * optional，default 'true'
          * whether use tinker to build
          */
+        //是否启用tinker
         tinkerEnable = buildWithTinker()
 
         /**
@@ -172,11 +185,13 @@ if (buildWithTinker()) {
              * Warning:
              * you must be careful that it will affect the normal assemble build!
              */
+            //指定old apk打包时所使用的混淆文件 (因为patch文件也是需要混淆的 所以必须要与Apk的打包混淆文件一致)
             applyMapping = getApplyMappingPath()
             /**
              * optional，default 'null'
              * It is nice to keep the resource id from R.txt file to reduce java changes
              */
+            //指定old apk的资源文件 希望new apk与其保持一致(R.txt 文件保持ResId的分配)
             applyResourceMapping = getApplyResourceMappingPath()
 
             /**
@@ -186,12 +201,15 @@ if (buildWithTinker()) {
              * we can use git rev, svn rev or simply versionCode.
              * we will gen the tinkerId in your manifest automatic
              */
+            //指定TinkerID patch文件的唯一标识符 要与新旧Apk一致
             tinkerId = getTinkerIdValue()
 
             /**
              * if keepDexApply is true, class in which dex refer to the old apk.
              * open this can reduce the dex diff file size.
              */
+
+            //通常为false true会根据dex分包动态编译patch文件
             keepDexApply = false
 
             /**
@@ -223,6 +241,11 @@ if (buildWithTinker()) {
              * if you want to support below 14, you must use jar
              * or you want to save rom or check quicker, you can use raw mode also
              */
+            //Tinker提供两种模式jar、raw
+            //jar 适配到了api=14以下 而raw只能再14以上
+            //jar模式下 Tinker会对dex文件压缩成jar文件 在对jar进行处理
+            //raw模式下 Tinker直接对dex进行处理
+            //使用jar文件体积相对会小一些 在实际开发中用jar模式较多
             dexMode = "jar"
 
             /**
@@ -230,6 +253,8 @@ if (buildWithTinker()) {
              * what dexes in apk are expected to deal with tinkerPatch
              * it support * or ? pattern.
              */
+            //指定dex目录  "assets/secondary-dex-?.jar"为Tinker官方Demo中建议参数
+            //在没有分包的情况下 "classes*.dex" 会匹配到应用中的所有dex文件 分包会是classes1,classes2....
             pattern = ["classes*.dex",
                        "assets/secondary-dex-?.jar"]
             /**
@@ -241,6 +266,7 @@ if (buildWithTinker()) {
              * own tinkerLoader, and the classes you use in them
              *
              */
+            //制定patch文件用到类
             loader = [
                     //use sample, let BaseBuildInfo unchangeable with tinker
                     "tinker.sample.android.app.BaseBuildInfo"
@@ -266,6 +292,11 @@ if (buildWithTinker()) {
              * you must include all your resources in apk here,
              * otherwise, they won't repack in the new apk resources.
              */
+            //指定Tinker可以修改的资源文件路径
+            // resources.arcs ：AndroidReSourCe也就是与Android资源相关的一种文件格式。
+            // 具体角色是提供资源ID到资源文件路径的映射关系，
+            // 具体来说就是R.layout.activity_main（0x7f030000）到res/layout/activity_main.xml的映射关系
+            // 其中R.layout.activity_main就是应用开发过程中所使用的资源ID
             pattern = ["res/*", "assets/*", "resources.arsc", "AndroidManifest.xml"]
 
             /**
@@ -274,6 +305,7 @@ if (buildWithTinker()) {
              * it support * or ? pattern.
              * Warning, we can only use for files no relative with resources.arsc
              */
+            //在编译时会忽略该文件的新增、删除与修改 即使修改了文件 也不会patch文件生效
             ignoreChange = ["assets/sample_meta.txt"]
 
             /**
@@ -281,10 +313,13 @@ if (buildWithTinker()) {
              * for modify resource, if it is larger than 'largeModSize'
              * we would like to use bsdiff algorithm to reduce patch file size
              */
+            //对于修改的资源，如果大于largeModSize，我们将使用bsdiff算法。
+            // 默认大小为100kb
             largeModSize = 100
         }
 
         packageConfig {
+            /*configField("key","value") 键值对 用于说明 当客户端使用patch文件修复成功 可以通过代码获取下面patch相关信息*/
             /**
              * optional，default 'TINKER_ID, TINKER_ID_VALUE' 'NEW_TINKER_ID, NEW_TINKER_ID_VALUE'
              * package meta file gen. path is assets/package_meta.txt in patch file
@@ -326,11 +361,14 @@ if (buildWithTinker()) {
         }
     }
 
+    //多渠道相关遍历
     List<String> flavors = new ArrayList<>();
     project.android.productFlavors.each { flavor ->
         flavors.add(flavor.name)
     }
+    //如果是多渠道 则size()>0 为true
     boolean hasFlavors = flavors.size() > 0
+    //生成包的后缀名称
     def date = new Date().format("MMdd-HH-mm-ss")
 
     /**
@@ -373,6 +411,7 @@ if (buildWithTinker()) {
             }
         }
     }
+    /* Tinker多渠道打包文件拼凑脚本*/
     project.afterEvaluate {
         //sample use for build all flavor for one time
         if (hasFlavors) {
@@ -394,6 +433,7 @@ if (buildWithTinker()) {
                 }
             }
 
+            //Debug签名多渠道打包基本
             task(tinkerPatchAllFlavorDebug) {
                 group = 'tinker'
                 def originOldPath = getTinkerBuildFlavorDirectory()
@@ -413,8 +453,6 @@ if (buildWithTinker()) {
         }
     }
 }
-
-
 
 task sortPublicTxt() {
     doLast {

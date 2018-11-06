@@ -131,6 +131,13 @@ public class MainAct extends AppCompatActivity {
         return true;
     }
 
+    public void testButton(View view) {
+        Test test = new Test();
+        TextView textView = findViewById(R.id.test);
+        textView.setText("增加实体类计算结果：" + String.valueOf(test.getCalute()));
+    }
+
+
     @Override
     protected void onResume() {
         Log.e(TAG, "i am on onResume");
